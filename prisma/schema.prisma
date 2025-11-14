@@ -1,0 +1,472 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// User & Authentication
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  password      String?
+  image         String?
+  role          String    @default("agent") // agent, team_lead, admin
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  accounts      Account[]
+  sessions      Session[]
+  settings      UserSettings?
+  brandingProfile BrandingProfile?
+  creditBalance CreditBalance?
+  creditTransactions CreditTransaction[]
+  listings      Listing[]
+  campaigns     Campaign[]
+  aiTasks       AITask[]
+  dashboardLayout DashboardLayout?
+  ownedTeams    Team[]    @relation("TeamOwner")
+  teamMemberships TeamMember[]
+  sentTeamInvites TeamInvite[] @relation("InviteSender")
+  receivedTeamInvites TeamInvite[] @relation("InviteReceiver")
+
+  subscription  Subscription?
+  socialChannels SocialChannel[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================
+// User Settings & Branding
+// ============================================
+
+model UserSettings {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+
+  // Profile
+  phoneNumber String?
+  brokerage   String?
+
+  // Location
+  primaryCity   String?
+  primaryArea   String?
+
+  // Preferences
+  language      String   @default("cs") // cs = Czech
+  timezone      String   @default("Europe/Prague")
+
+  // Notifications
+  emailNotifications Boolean @default(true)
+  lowCreditAlert     Boolean @default(true)
+  campaignReminders  Boolean @default(true)
+
+  // Onboarding
+  onboardingCompleted Boolean @default(false)
+  onboardingStep      Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model BrandingProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  // Visual branding
+  logoUrl       String?
+  headshotUrl   String?
+  primaryColor  String  @default("#6366F1")
+  secondaryColor String @default("#EC4899")
+  fontHeading   String  @default("Space Grotesk")
+  fontBody      String  @default("Inter")
+
+  // Voice & tone
+  toneOfVoice   String  @default("neutral") // formal, neutral, friendly
+  stylePreference String @default("balanced") // professional, balanced, bold
+
+  // Default CTA
+  defaultCTA    String  @default("Zavolejte pro bezplatné ocenění")
+
+  // Target personas (JSON array)
+  personas      String  @default("[]") // [{name: "Prodávající v Praze", description: "..."}]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DashboardLayout {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  // JSON structure for widget positions and visibility
+  layout String @default("[]") // [{id: "campaigns", x: 0, y: 0, w: 2, h: 1, visible: true}, ...]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// Teams & Collaboration
+// ============================================
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  ownerId     String
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner       User     @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     TeamMember[]
+  invites     TeamInvite[]
+}
+
+model TeamMember {
+  id       String @id @default(cuid())
+  teamId   String
+  userId   String
+  role     String @default("editor") // owner, editor, viewer
+
+  joinedAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+model TeamInvite {
+  id          String   @id @default(cuid())
+  teamId      String
+  email       String
+  role        String   @default("editor")
+  invitedById String
+  invitedUserId String?
+  status      String   @default("pending") // pending, accepted, declined
+  token       String   @unique
+  expiresAt   DateTime
+
+  createdAt   DateTime @default(now())
+
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy   User     @relation("InviteSender", fields: [invitedById], references: [id], onDelete: Cascade)
+  invitedUser User?    @relation("InviteReceiver", fields: [invitedUserId], references: [id], onDelete: SetNull)
+
+  @@unique([teamId, email])
+}
+
+// ============================================
+// Social Channels
+// ============================================
+
+model SocialChannel {
+  id         String  @id @default(cuid())
+  userId     String
+  platform   String  // instagram, facebook, linkedin, x, tiktok, youtube, google_business
+  name       String  // User-friendly name
+  isActive   Boolean @default(true)
+
+  // For future OAuth integration
+  accessToken  String?
+  refreshToken String?
+  expiresAt    DateTime?
+
+  // Platform-specific IDs
+  platformAccountId String?
+  platformUsername  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  posts Post[]
+
+  @@unique([userId, platform, platformAccountId])
+}
+
+// ============================================
+// Listings & Campaigns
+// ============================================
+
+model Listing {
+  id          String   @id @default(cuid())
+  userId      String
+
+  // Property details
+  title       String
+  address     String?
+  area        String?
+  propertyType String  // apartment, house, commercial, land
+  price       Float?
+  currency    String   @default("CZK")
+
+  // Features (JSON array)
+  features    String   @default("[]") // ["3 pokoje", "balkon", "výtah"]
+
+  // Images (JSON array of URLs)
+  images      String   @default("[]")
+
+  // Source
+  sourceUrl   String?  // If imported from URL
+  description String?
+
+  // Status
+  status      String   @default("active") // active, sold, archived
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaigns Campaign[]
+}
+
+model Campaign {
+  id          String   @id @default(cuid())
+  userId      String
+  listingId   String
+
+  // Campaign type
+  type        String   @default("just_listed") // just_listed, open_house, price_drop, just_sold
+
+  // Status
+  status      String   @default("draft") // draft, needs_review, approved, scheduled, published
+
+  // Content pillars (JSON)
+  tourContent       String? // {caption, script, videoIdea}
+  caseStudyContent  String? // {problem, approach, result, copy}
+  expertContent     String? // {insight, marketData, copy}
+
+  // Metadata
+  generatedAt DateTime?
+  approvedBy  String?
+  approvedAt  DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  posts   Post[]
+}
+
+model Post {
+  id          String   @id @default(cuid())
+  campaignId  String
+  channelId   String
+
+  // Content
+  pillarType  String   // tour, case_study, expert, general
+  content     String   // Main text/caption
+  hashtags    String?  // Space or comma separated
+
+  // Media
+  mediaUrls   String   @default("[]") // JSON array
+  mediaType   String?  // image, video, carousel
+
+  // Scheduling
+  scheduledFor DateTime?
+  publishedAt  DateTime?
+
+  // Status
+  status      String   @default("draft") // draft, scheduled, published, failed
+
+  // Engagement (for future analytics)
+  likes       Int      @default(0)
+  comments    Int      @default(0)
+  shares      Int      @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campaign Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  channel  SocialChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  variants PostVariant[]
+}
+
+model PostVariant {
+  id          String   @id @default(cuid())
+  postId      String
+  platform    String   // instagram, facebook, linkedin, etc.
+
+  // Platform-specific content
+  content     String
+  format      String?  // story, reel, post, carousel
+
+  // Optional overrides
+  hashtags    String?
+  mediaConfig String?  // JSON for platform-specific media settings
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, platform])
+}
+
+// ============================================
+// Credits & Billing
+// ============================================
+
+model CreditBalance {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  credits     Int      @default(100) // Starting credits
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CreditTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+
+  amount      Int      // Positive for additions, negative for deductions
+  type        String   // purchase, grant, deduction, refund
+  reason      String?  // "Campaign generation", "Post rewrite", etc.
+
+  // Related entity
+  relatedId   String?  // ID of campaign, AI task, etc.
+  relatedType String?  // campaign, ai_task, etc.
+
+  balanceAfter Int     // Balance after this transaction
+
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+
+  plan        String   @default("free") // free, starter, pro, team
+  status      String   @default("active") // active, cancelled, expired
+
+  // Limits
+  campaignsPerMonth Int @default(3)
+  creditsPerMonth   Int @default(100)
+
+  // Billing
+  currentPeriodStart DateTime @default(now())
+  currentPeriodEnd   DateTime @default(now())
+
+  // External billing (for future Stripe integration)
+  stripeCustomerId       String?
+  stripeSubscriptionId   String?
+  stripePriceId          String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// AI Agents & Tasks
+// ============================================
+
+model AIAgent {
+  id          String   @id @default(cuid())
+
+  name        String   @unique // ListingCopywriter, MarketAnalyst, Scheduler, etc.
+  role        String   // Description of what this agent does
+  systemPrompt String  // The prompt template
+
+  // Model config
+  model       String   @default("gpt-4-turbo-preview")
+  temperature Float    @default(0.7)
+  maxTokens   Int      @default(2000)
+
+  // Cost
+  creditsPerUse Int    @default(10)
+
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tasks AITask[]
+}
+
+model AITask {
+  id        String   @id @default(cuid())
+  userId    String
+  agentId   String
+
+  // Input/Output
+  input     String   // JSON stringified input
+  output    String?  // JSON stringified output
+
+  // Status
+  status    String   @default("pending") // pending, processing, completed, failed
+  error     String?
+
+  // Cost
+  creditsUsed Int    @default(0)
+  tokensUsed  Int    @default(0)
+
+  // Timing
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  user  User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent AIAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+}
