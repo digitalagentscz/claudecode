@@ -315,9 +315,9 @@ export default function NewCampaignPage() {
                     id="image-upload"
                   />
                   <label htmlFor="image-upload">
-                    <Button type="button" variant="outline" size="sm" as="span">
+                    <span className="btn btn-outline px-3 py-1.5 text-sm cursor-pointer inline-flex items-center justify-center">
                       Vybrat soubory
-                    </Button>
+                    </span>
                   </label>
                 </div>
 
